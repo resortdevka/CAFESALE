@@ -25,7 +25,9 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 const DEFAULT_ADMIN_PASSWORD = "Admindbr063";
-const AUTH_SESSION_KEY = "amigos_admin_authenticated";
+const DEFAULT_USER_PASSWORD  = "uzerdbr2026";
+const AUTH_SESSION_KEY      = "amigos_admin_authenticated";
+const USER_AUTH_SESSION_KEY = "amigos_user_authenticated";
 
 // ---------------------------------------------------------------------
 // App State & Security
@@ -37,6 +39,7 @@ let selectedProduct = null;
 let searchQuery = "";
 let adminProductSearch = "";
 let isAdmin = false;
+let isUser  = false;
 let editingProductId = null;
 
 // Brute-force protection state
@@ -96,7 +99,7 @@ function updateStatusIndicator(status, text) {
 }
 
 // ---------------------------------------------------------------------
-// Firestore Setup & Admin Document Verification
+// Firestore Setup — Ensure both settings docs exist
 // ---------------------------------------------------------------------
 async function ensureAdminDoc() {
   try {
@@ -107,6 +110,18 @@ async function ensureAdminDoc() {
     }
   } catch (e) {
     console.error("Could not verify admin settings doc:", e);
+  }
+}
+
+async function ensureUserDoc() {
+  try {
+    const ref = doc(db, "settings", "user");
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      await setDoc(ref, { password: DEFAULT_USER_PASSWORD, updatedAt: serverTimestamp() });
+    }
+  } catch (e) {
+    console.error("Could not verify user settings doc:", e);
   }
 }
 
@@ -352,11 +367,93 @@ async function addSale() {
     });
 
     flashMsg(msg, `✅ Logged ${qty} × ${product.name} — ${rupee(price * qty)}`, true);
+
+    // ── Full reset for next entry ──
+    selectedProduct = null;
+    $("select-item").value = "";
+    $("selected-item-name").textContent = "Pick an item";
+    $("ticket-selected-cat").textContent = "Select Item";
+    $("input-price").value = "";
     $("input-qty").value = 1;
+    $("input-barista").value = "";
+    $("input-date").value = todayStr();
     updateTicketTotal();
+    renderItemGrid(); // deselect card highlight
   } catch (e) {
     console.error("Sale logging error:", e);
     flashMsg(msg, "Could not save sale. Check your Firestore connection.", false);
+  }
+}
+
+// =======================================================================
+// USER GATE — Login (password stored in Firestore settings/user)
+// =======================================================================
+function showMainApp() {
+  isUser = true;
+  sessionStorage.setItem(USER_AUTH_SESSION_KEY, "true");
+  const gate = $("user-login-gate");
+  const main = $("main-app");
+  if (gate) gate.style.display = "none";
+  if (main) main.style.display = "";
+}
+
+async function attemptUserLogin() {
+  const msg    = $("user-login-msg");
+  const btn    = $("btn-user-login");
+  const pwd    = $("user-password").value.trim();
+  if (!pwd) return flashMsg(msg, "Please enter the password.", false);
+
+  btn.disabled = true;
+  btn.textContent = "Checking…";
+
+  try {
+    const snap = await getDoc(doc(db, "settings", "user"));
+    const stored = snap.exists() && snap.data().password ? snap.data().password : DEFAULT_USER_PASSWORD;
+    if (pwd === stored) {
+      showMainApp();
+    } else {
+      flashMsg(msg, "Incorrect password. Please try again.", false);
+      $("user-password").value = "";
+      $("user-password").focus();
+    }
+  } catch (e) {
+    console.error("User login error:", e);
+    // Fallback to default if Firestore unavailable
+    if (pwd === DEFAULT_USER_PASSWORD) {
+      showMainApp();
+    } else {
+      flashMsg(msg, "Incorrect password.", false);
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Enter";
+  }
+}
+
+function setupUserGate() {
+  const btn = $("btn-user-login");
+  if (btn) btn.onclick = attemptUserLogin;
+
+  const pwdInput = $("user-password");
+  if (pwdInput) {
+    pwdInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") attemptUserLogin();
+    });
+  }
+
+  // Eye toggle for user gate
+  const toggle = $("btn-toggle-user-pwd");
+  if (toggle) {
+    toggle.onclick = () => {
+      const inp = $("user-password");
+      if (inp.type === "password") { inp.type = "text"; toggle.textContent = "🙈"; }
+      else { inp.type = "password"; toggle.textContent = "👁️"; }
+    };
+  }
+
+  // Restore user session if previously authenticated in this browser tab
+  if (sessionStorage.getItem(USER_AUTH_SESSION_KEY) === "true") {
+    showMainApp();
   }
 }
 
@@ -907,21 +1004,25 @@ function setupAdmin() {
 }
 
 // ---------------------------------------------------------------------
-// App Initialization
+// App Initialization — Firestore only
 // ---------------------------------------------------------------------
 async function init() {
+  // 1. Setup user gate first (blocks UI until user password is entered)
+  setupUserGate();
+
+  // 2. Setup the rest of the UI
   setupTabs();
   setupSubtabs();
   setupEntryForm();
   setupAdmin();
 
-  // Restore authenticated session if previously logged in
+  // 3. Restore admin session if previously logged in
   if (sessionStorage.getItem(AUTH_SESSION_KEY) === "true") {
     showAdminDashboard();
   }
 
-  // Connect to Firestore
-  await ensureAdminDoc();
+  // 4. Connect to Firestore and ensure both settings docs exist
+  await Promise.all([ensureAdminDoc(), ensureUserDoc()]);
   listenProducts();
   listenSales();
 }
