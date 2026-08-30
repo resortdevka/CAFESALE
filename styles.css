@@ -840,7 +840,40 @@ main {
 
 .settings-card { max-width: 480px; }
 
-/* ---------------- site footer ---------------- */
+/* ---------------- User gate (main app lock) ---------------- */
+.user-gate-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: linear-gradient(135deg, var(--teal-deep) 0%, var(--teal) 40%, #1a6b50 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.user-gate-card {
+  background: var(--paper);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  padding: 40px 36px;
+  max-width: 400px;
+  width: 100%;
+  text-align: center;
+  border: 1px solid rgba(255,255,255,0.15);
+  animation: gate-pop 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes gate-pop {
+  from { opacity: 0; transform: scale(0.9) translateY(20px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.user-gate-card h2 { margin: 6px 0 10px; font-size: 26px; }
+.user-gate-card p  { color: var(--ink-soft); font-size: 13.5px; margin: 0 0 22px; line-height: 1.5; }
+.user-gate-card .field { text-align: left; }
+
+/* site footer */
 footer.site-footer {
   text-align: center;
   padding: 28px 20px;
