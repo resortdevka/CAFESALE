@@ -25,8 +25,7 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 const DEFAULT_ADMIN_PASSWORD = "admindbr063";
-const DEFAULT_USER_PASSWORD  = "uzerdbr2026";
-const DEFAULT_USER_PASSWORD  = "admindbr063";
+const DEFAULT_USER_PASSWORD  = "cafedbr2027";
 const AUTH_SESSION_KEY      = "amigos_admin_authenticated";
 const USER_AUTH_SESSION_KEY = "amigos_user_authenticated";
 
