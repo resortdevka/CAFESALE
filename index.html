@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=4" />
+  <link rel="stylesheet" href="styles.css?v=5" />
 </head>
 <body>
 
@@ -42,7 +42,25 @@
   </svg>
 </div>
 
-<main>
+<!-- ============ USER LOGIN GATE (covers entire app) ============ -->
+<div id="user-login-gate" class="user-gate-backdrop">
+  <div class="user-gate-card">
+    <img src="logo-cafe-web.png" alt="H'ola Amigos Cafe Logo" class="login-logo" />
+    <h2>Welcome</h2>
+    <p>Enter your password to access the Coffee Sale Desk.</p>
+    <label class="field">
+      <span>Password</span>
+      <div class="password-input-wrap">
+        <input type="password" id="user-password" placeholder="••••••••" autocomplete="current-password" />
+        <button type="button" class="btn-pwd-toggle" id="btn-toggle-user-pwd" aria-label="Show/Hide password">👁️</button>
+      </div>
+    </label>
+    <button class="btn-primary" id="btn-user-login">Enter</button>
+    <p class="form-msg" id="user-login-msg"></p>
+  </div>
+</div>
+
+<main style="display:none;" id="main-app">
 
   <!-- ============================ ENTRY VIEW ============================ -->
   <section id="view-entry" class="view active">
@@ -364,6 +382,6 @@
   <p>H'ola Amigos Cafe · Devka Beach Resort — Fast Counter Sales &amp; Daily Reporting Desk</p>
 </footer>
 
-<script type="module" src="app.js?v=4"></script>
+<script type="module" src="app.js?v=5"></script>
 </body>
 </html>
