@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>H'ola Amigos Cafe — Coffee Sale Desk</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=4" />
+</head>
+<body>
+
+<div class="sun" aria-hidden="true"></div>
+
+<!-- Topbar -->
+<header class="topbar">
+  <div class="brand">
+    <img src="logo-cafe-web.png" alt="H'ola Amigos Cafe Logo" class="brand-logo" />
+    <div class="brand-text">
+      <h1>H'ola Amigos</h1>
+      <p>Devka Beach Resort · Coffee Sale Desk</p>
+    </div>
+  </div>
+
+  <div class="topbar-right">
+    <div class="db-status-pill" id="db-status-pill" title="Database connection status">
+      <span class="status-dot pending"></span>
+      <span class="status-text" id="status-text">Connecting to Firestore…</span>
+    </div>
+
+    <nav class="tabs" role="tablist" aria-label="Main sections">
+      <button class="tab active" id="tab-entry" role="tab" aria-selected="true">Order Entry</button>
+      <button class="tab" id="tab-admin" role="tab" aria-selected="false">Admin</button>
+    </nav>
+  </div>
+</header>
+
+<div class="wave" aria-hidden="true">
+  <svg viewBox="0 0 1440 60" preserveAspectRatio="none">
+    <path d="M0,32 C240,60 480,0 720,20 C960,40 1200,60 1440,24 L1440,60 L0,60 Z"></path>
+  </svg>
+</div>
+
+<main>
+
+  <!-- ============================ ENTRY VIEW ============================ -->
+  <section id="view-entry" class="view active">
+
+    <div class="entry-grid">
+
+      <!-- Menu Grid Panel -->
+      <div class="menu-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Today's Menu</h2>
+            <p class="panel-subtitle">Select any beverage to automatically load price into ticket</p>
+          </div>
+          <div class="menu-search-box">
+            <input type="text" id="menu-search" placeholder="🔍 Search menu item..." autocomplete="off" />
+          </div>
+        </div>
+
+        <div class="chip-row" id="category-chips"></div>
+
+        <div class="item-grid" id="item-grid">
+          <p class="empty-state" id="menu-loading">Loading menu from Firestore…</p>
+        </div>
+      </div>
+
+      <!-- Ticket Panel -->
+      <aside class="ticket-panel">
+        <div class="ticket">
+          <div class="ticket-head">
+            <div class="ticket-eyebrow-row">
+              <span class="ticket-eyebrow">New Sale</span>
+              <span class="ticket-badge" id="ticket-selected-cat">Select Item</span>
+            </div>
+            <h3 id="selected-item-name">Pick an item</h3>
+          </div>
+
+          <div class="ticket-body">
+            <label class="field">
+              <span>Item</span>
+              <select id="select-item">
+                <option value="">— choose an item —</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Date</span>
+              <input type="date" id="input-date" required />
+            </label>
+
+            <label class="field">
+              <span>Price (₹) <small class="field-hint">(Auto-filled)</small></span>
+              <input type="number" id="input-price" min="0" step="1" inputmode="decimal" placeholder="0" />
+            </label>
+
+            <label class="field">
+              <span>Quantity</span>
+              <div class="stepper-wrap">
+                <div class="stepper">
+                  <button type="button" id="qty-minus" aria-label="Decrease quantity">−</button>
+                  <input type="number" id="input-qty" min="1" step="1" value="1" />
+                  <button type="button" id="qty-plus" aria-label="Increase quantity">+</button>
+                </div>
+                <div class="qty-quick-buttons">
+                  <button type="button" class="btn-qty-preset" data-qty="1">+1</button>
+                  <button type="button" class="btn-qty-preset" data-qty="2">+2</button>
+                  <button type="button" class="btn-qty-preset" data-qty="5">+5</button>
+                </div>
+              </div>
+            </label>
+
+            <label class="field">
+              <span>Barista (optional)</span>
+              <input type="text" id="input-barista" placeholder="e.g. Rahul, Priya" maxlength="50" />
+            </label>
+
+            <div class="ticket-total">
+              <div>
+                <span>Total Amount</span>
+                <p class="total-calc-breakdown" id="total-breakdown">0 × ₹0</p>
+              </div>
+              <strong id="ticket-total-amount">₹0</strong>
+            </div>
+
+            <div class="ticket-btn-group">
+              <button class="btn-primary" id="btn-add-sale">
+                <span>⚡ Log Sale</span>
+              </button>
+            </div>
+            <p class="form-msg" id="entry-msg"></p>
+          </div>
+          <div class="ticket-edge"></div>
+        </div>
+
+        <!-- Today's Log Panel -->
+        <div class="log-panel">
+          <div class="panel-head">
+            <div>
+              <h3>Today's Log</h3>
+              <span class="panel-subtitle">Live real-time counter sales</span>
+            </div>
+            <span class="pill" id="today-count">0 sales</span>
+          </div>
+          <div class="log-list" id="today-log">
+            <p class="empty-state">No sales logged yet today.</p>
+          </div>
+          <div class="log-summary" id="today-summary"></div>
+        </div>
+      </aside>
+
+    </div>
+
+  </section>
+
+  <!-- ============================ ADMIN VIEW ============================ -->
+  <section id="view-admin" class="view">
+
+    <!-- Login gate -->
+    <div class="login-gate" id="admin-login">
+      <div class="login-card">
+        <img src="logo-cafe-web.png" alt="H'ola Amigos Cafe Logo" class="login-logo" />
+        <h2>Staff Door</h2>
+        <p>Enter the admin password to manage products, prices, and view the sales dashboard.</p>
+        
+        <label class="field">
+          <span>Password</span>
+          <div class="password-input-wrap">
+            <input type="password" id="admin-password" placeholder="••••••••" autocomplete="current-password" />
+            <button type="button" class="btn-pwd-toggle" id="btn-toggle-pwd" aria-label="Toggle password visibility" title="Show/Hide password">👁️</button>
+          </div>
+        </label>
+        
+        <button class="btn-primary" id="btn-admin-login">Unlock Admin</button>
+        <p class="form-msg" id="login-msg"></p>
+      </div>
+    </div>
+
+    <!-- Dashboard (shown after login) -->
+    <div class="admin-dashboard" id="admin-dashboard" style="display: none;">
+
+      <div class="admin-top">
+        <div>
+          <h2>Admin Dashboard</h2>
+          <p class="panel-subtitle">Manage menu prices, add items to Firestore, and track live revenues</p>
+        </div>
+        <div class="admin-top-actions">
+          <span class="pill success" id="admin-live-pill">● Database Live</span>
+          <button class="btn-ghost" id="btn-logout">🔒 Lock &amp; Exit</button>
+        </div>
+      </div>
+
+      <div class="stat-row" id="stat-row">
+        <div class="stat-card">
+          <span class="stat-label">Today's Revenue</span>
+          <strong class="stat-value" id="stat-revenue-today">₹0</strong>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Today's Cups Sold</span>
+          <strong class="stat-value" id="stat-qty-today">0</strong>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">All-Time Revenue</span>
+          <strong class="stat-value" id="stat-revenue-total">₹0</strong>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Best Seller</span>
+          <strong class="stat-value" id="stat-best-seller">—</strong>
+        </div>
+      </div>
+
+      <nav class="subtabs" role="tablist">
+        <button class="subtab active" data-panel="panel-sales">📊 Sales Dashboard</button>
+        <button class="subtab" data-panel="panel-products">☕ Manage Products &amp; Prices</button>
+        <button class="subtab" data-panel="panel-settings">⚙️ Settings</button>
+      </nav>
+
+      <!-- Sales dashboard -->
+      <div class="admin-panel active" id="panel-sales">
+        <div class="filter-bar">
+          <label class="field small">
+            <span>From</span>
+            <input type="date" id="filter-from" />
+          </label>
+          <label class="field small">
+            <span>To</span>
+            <input type="date" id="filter-to" />
+          </label>
+          <label class="field small">
+            <span>Category</span>
+            <select id="filter-category"><option value="">All categories</option></select>
+          </label>
+          <label class="field small grow">
+            <span>Search item / barista</span>
+            <input type="text" id="filter-search" placeholder="e.g. Cappuccino, Rahul" autocomplete="off" />
+          </label>
+          <div class="filter-btn-group">
+            <button class="btn-ghost" id="btn-clear-filters">Clear</button>
+            <button class="btn-secondary" id="btn-export-csv">📥 Export CSV</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table" id="sales-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Time</th>
+                <th>Item</th>
+                <th>Category</th>
+                <th>Qty</th>
+                <th>Price</th>
+                <th>Total</th>
+                <th>Barista</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="sales-tbody">
+              <tr><td colspan="9" class="empty-state">Loading sales…</td></tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="4">Filtered Totals</td>
+                <td id="foot-qty" class="mono">0</td>
+                <td></td>
+                <td id="foot-total" class="mono">₹0</td>
+                <td colspan="2"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <!-- Manage products -->
+      <div class="admin-panel" id="panel-products">
+        <div class="product-manage-grid">
+          <form class="card-form" id="form-add-product">
+            <div class="card-form-head">
+              <h3>➕ Add New Product to Menu</h3>
+              <p class="muted">Items added here are saved directly into Firestore and immediately appear on the order desk.</p>
+            </div>
+            <label class="field">
+              <span>Item Name</span>
+              <input type="text" id="new-product-name" required placeholder="e.g. Coconut Cold Brew, Irish Latte" maxlength="80" />
+            </label>
+            <label class="field">
+              <span>Category</span>
+              <input type="text" id="new-product-category" required placeholder="e.g. Specialty Coffee, Cold Coffee" list="category-datalist" maxlength="60" />
+              <datalist id="category-datalist"></datalist>
+            </label>
+            <label class="field">
+              <span>Price (₹)</span>
+              <input type="number" id="new-product-price" min="1" step="1" required placeholder="e.g. 180" />
+            </label>
+            <button class="btn-primary" type="submit">💾 Save Item to Database</button>
+            <p class="form-msg" id="product-msg"></p>
+          </form>
+
+          <div class="import-box">
+            <div class="card-form-head">
+              <h3>📦 Default Menu Import</h3>
+              <p class="muted">One-click bulk import of the complete Hola Amigos menu (Specialty Coffee, Flavoured Coffee, Cold Coffee, Milkshakes, Ice Tea) with all prices into Firestore.</p>
+            </div>
+            <button class="btn-secondary" id="btn-seed-menu">📥 Import Full Default Menu (34 Items)</button>
+            <p class="form-msg" id="seed-msg"></p>
+          </div>
+        </div>
+
+        <div class="products-table-header">
+          <div class="panel-head">
+            <div>
+              <h3>Active Menu Items (<span id="product-count-badge">0</span>)</h3>
+              <p class="panel-subtitle">Edit prices and details or remove items. All changes update instantly in Firestore.</p>
+            </div>
+            <div class="menu-search-box">
+              <input type="text" id="admin-product-search" placeholder="🔍 Search products..." autocomplete="off" />
+            </div>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table" id="products-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Category</th>
+                <th>Price (₹)</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="products-tbody">
+              <tr><td colspan="4" class="empty-state">Loading products…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Settings -->
+      <div class="admin-panel" id="panel-settings">
+        <form class="card-form settings-card" id="form-change-password">
+          <h3>Change Admin Password</h3>
+          <p class="muted">This updates the password stored in the Firestore settings collection. Share the new password only with authorized staff.</p>
+          <label class="field">
+            <span>New Password</span>
+            <div class="password-input-wrap">
+              <input type="password" id="new-admin-password" required minlength="4" placeholder="Enter new password (min 4 chars)" autocomplete="new-password" />
+              <button type="button" class="btn-pwd-toggle" id="btn-toggle-new-pwd" aria-label="Toggle password visibility">👁️</button>
+            </div>
+          </label>
+          <button class="btn-primary" type="submit">Update Password</button>
+          <p class="form-msg" id="password-msg"></p>
+        </form>
+      </div>
+
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <p>H'ola Amigos Cafe · Devka Beach Resort — Fast Counter Sales &amp; Daily Reporting Desk</p>
+</footer>
+
+<script type="module" src="app.js?v=4"></script>
+</body>
+</html>
