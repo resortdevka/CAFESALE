@@ -26,6 +26,7 @@ const db = getFirestore(app);
 
 const DEFAULT_ADMIN_PASSWORD = "Admindbr063";
 const DEFAULT_USER_PASSWORD  = "uzerdbr2026";
+const DELETE_PASSWORD        = "0063";
 const AUTH_SESSION_KEY      = "amigos_admin_authenticated";
 const USER_AUTH_SESSION_KEY = "amigos_user_authenticated";
 
@@ -41,6 +42,18 @@ let adminProductSearch = "";
 let isAdmin = false;
 let isUser  = false;
 let editingProductId = null;
+
+// Analytics State
+let selectedAnalyticsPeriod = "ALL"; // "ALL" or "YYYY-MM" or "this-month", "prev-month", "last-90"
+let leaderboardSearch = "";
+let leaderboardSort = "cups-desc";
+const chartInstances = {
+  topProducts: null,
+  categoryShare: null,
+  monthlyTrend: null,
+  dailyTrend: null,
+  hourlyTrend: null
+};
 
 // Brute-force protection state
 let failedLoginAttempts = 0;
@@ -159,7 +172,8 @@ function listenSales() {
     sales = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     renderTodayLog();
     renderSalesTable();
-    renderStats();
+    renderAnalytics();
+    renderMonthlyReports();
   }, (err) => {
     console.error("Sales listener error:", err);
   });
@@ -226,13 +240,25 @@ function renderItemGrid() {
   }
 
   // Populate <select> dropdown with all products
-  select.innerHTML = '<option value="">— choose an item —</option>';
+  select.innerHTML = '<option value="">— choose from menu —</option>';
   products.forEach((p) => {
     const opt = document.createElement("option");
     opt.value = p.id;
     opt.textContent = `${p.name} (${p.category || "Beverage"}) — ${rupee(p.price)}`;
     select.appendChild(opt);
   });
+
+  // Populate datalist for autocomplete
+  const datalist = $("ticket-items-datalist");
+  if (datalist) {
+    datalist.innerHTML = "";
+    products.forEach((p) => {
+      const opt = document.createElement("option");
+      opt.value = p.name;
+      opt.label = `${p.category || "Beverage"} — ${rupee(p.price)}`;
+      datalist.appendChild(opt);
+    });
+  }
 
   if (selectedProduct) {
     select.value = selectedProduct.id;
@@ -280,11 +306,20 @@ function selectProduct(p) {
   if (!p) return;
   selectedProduct = p;
 
-  $("select-item").value = p.id;
-  $("selected-item-name").textContent = p.name;
-  $("ticket-selected-cat").textContent = p.category || "Beverage";
+  if ($("select-item")) $("select-item").value = p.id;
+  if ($("input-item-name")) $("input-item-name").value = p.name;
+  if ($("selected-item-name")) $("selected-item-name").textContent = p.name;
 
-  // Automatically fill the price from the database
+  const cat = p.category || "Coffee";
+  if ($("ticket-selected-cat")) $("ticket-selected-cat").textContent = cat;
+  if ($("select-ticket-category")) $("select-ticket-category").value = cat;
+
+  // Sync quick type pills
+  document.querySelectorAll(".btn-type-pill").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.cat === cat);
+  });
+
+  // Automatically fill the price
   $("input-price").value = p.price;
 
   updateTicketTotal();
@@ -319,10 +354,11 @@ function renderTodayLog() {
   todays.forEach((s) => {
     const row = document.createElement("div");
     row.className = "log-row";
+    const remarkDisplay = s.remark || s.barista;
     row.innerHTML = `
       <div>
-        <div class="li-name">${escapeHtml(s.itemName)}</div>
-        <div class="li-meta">Qty ${s.quantity} · ${rupee(s.price)} each${s.barista ? " · " + escapeHtml(s.barista) : ""} · ${s.time || ""}</div>
+        <div class="li-name">${escapeHtml(s.itemName)} <span class="pill" style="font-size:10px; padding:2px 6px; margin-left:4px;">${escapeHtml(s.category || "Item")}</span></div>
+        <div class="li-meta">Qty ${s.quantity} · ${rupee(s.price)} each${remarkDisplay ? " · 💬 " + escapeHtml(remarkDisplay) : ""} · ${s.time || ""}</div>
       </div>
       <div class="li-amt">${rupee(s.total)}</div>
     `;
@@ -332,50 +368,60 @@ function renderTodayLog() {
   const revenue = todays.reduce((sum, s) => sum + Number(s.total || 0), 0);
   const totalCups = todays.reduce((sum, s) => sum + Number(s.quantity || 0), 0);
   $("today-summary").innerHTML = `
-    <span>${totalCups} cup${totalCups === 1 ? "" : "s"} today</span>
+    <span>${totalCups} item${totalCups === 1 ? "" : "s"} today</span>
     <span>${rupee(revenue)}</span>
   `;
 }
 
-// Add sale — writes directly to Firestore
+// Add sale — writes directly to Firestore with custom or selected item & custom amount
 async function addSale() {
   const msg = $("entry-msg");
+  const nameInput = $("input-item-name");
   const select = $("select-item");
-  const productId = select.value;
-  const product = products.find((p) => p.id === productId) || selectedProduct;
+  const catSelect = $("select-ticket-category");
+
+  let itemName = sanitizeText(nameInput ? nameInput.value : "");
+  if (!itemName && select && select.value) {
+    const product = products.find((p) => p.id === select.value);
+    if (product) itemName = product.name;
+  }
+
+  const category = sanitizeText(catSelect ? catSelect.value : (selectedProduct ? selectedProduct.category : "Coffee"));
   const saleDate = $("input-date").value;
   const price = Math.max(0, Number($("input-price").value) || 0);
   const qty = Math.max(1, Math.floor(Number($("input-qty").value) || 1));
-  const barista = sanitizeText($("input-barista").value);
+  const remarkInput = $("input-remark");
+  const remark = sanitizeText(remarkInput ? remarkInput.value : "");
 
-  if (!product) return flashMsg(msg, "Please select an item first.", false);
+  if (!itemName) return flashMsg(msg, "Please enter or pick an item name.", false);
   if (!saleDate) return flashMsg(msg, "Please select a date.", false);
-  if (!price || price <= 0) return flashMsg(msg, "Please enter a valid price.", false);
+  if (!price || price <= 0) return flashMsg(msg, "Please enter a valid price/amount.", false);
 
   try {
     await addDoc(collection(db, "sales"), {
-      itemName: sanitizeText(product.name),
-      category: sanitizeText(product.category || "Beverage"),
-      productId: product.id,
+      itemName,
+      category: category || "Coffee",
+      productId: selectedProduct ? selectedProduct.id : null,
       price,
       quantity: qty,
       total: price * qty,
       date: saleDate,
       time: pad(new Date().getHours()) + ":" + pad(new Date().getMinutes()),
-      barista: barista || null,
+      remark: remark || null,
+      barista: remark || null,
       createdAt: serverTimestamp()
     });
 
-    flashMsg(msg, `✅ Logged ${qty} × ${product.name} — ${rupee(price * qty)}`, true);
+    flashMsg(msg, `✅ Logged ${qty} × ${itemName} (${category}) — ${rupee(price * qty)}`, true);
 
     // ── Full reset for next entry ──
     selectedProduct = null;
-    $("select-item").value = "";
-    $("selected-item-name").textContent = "Pick an item";
-    $("ticket-selected-cat").textContent = "Select Item";
+    if ($("input-item-name")) $("input-item-name").value = "";
+    if ($("select-item")) $("select-item").value = "";
+    $("selected-item-name").textContent = "New Order Entry";
     $("input-price").value = "";
     $("input-qty").value = 1;
-    $("input-barista").value = "";
+    if ($("input-remark")) $("input-remark").value = "";
     $("input-date").value = todayStr();
     updateTicketTotal();
     renderItemGrid(); // deselect card highlight
@@ -474,7 +520,8 @@ function showAdminDashboard() {
   $("admin-password").value = "";
   flashMsg($("login-msg"), "", true);
 
-  renderStats();
+  renderAnalytics();
+  renderMonthlyReports();
   renderSalesTable();
   renderProductsTable();
 }
@@ -558,31 +605,837 @@ function startLockout() {
 }
 
 // =======================================================================
-// ADMIN — STATS
+// ADMIN — DATA ANALYTICS & MONTH-WISE INTELLIGENCE ENGINE
 // =======================================================================
-function renderStats() {
-  const today = todayStr();
-  const todays = sales.filter((s) => s.date === today);
-  const revenueToday = todays.reduce((s, x) => s + Number(x.total || 0), 0);
-  const qtyToday = todays.reduce((s, x) => s + Number(x.quantity || 0), 0);
-  const revenueTotal = sales.reduce((s, x) => s + Number(x.total || 0), 0);
 
-  const byItem = {};
+function formatMonthKey(ym) {
+  if (!ym || ym === "ALL") return "All Time";
+  const parts = ym.split("-");
+  if (parts.length < 2) return ym;
+  const date = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, 1);
+  return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
+function getAvailableMonths() {
+  const set = new Set();
   sales.forEach((s) => {
-    byItem[s.itemName] = (byItem[s.itemName] || 0) + Number(s.quantity || 0);
+    if (s.date && s.date.length >= 7) {
+      set.add(s.date.substring(0, 7)); // YYYY-MM
+    }
   });
-  let best = "—", bestQty = 0;
-  Object.entries(byItem).forEach(([name, qty]) => {
-    if (qty > bestQty) {
-      best = name;
-      bestQty = qty;
+  const currentYM = todayStr().substring(0, 7);
+  set.add(currentYM);
+  return [...set].sort().reverse();
+}
+
+function updateMonthFilterOptions() {
+  const sel = $("analytics-month-select");
+  if (!sel) return;
+  const current = selectedAnalyticsPeriod;
+  const months = getAvailableMonths();
+
+  sel.innerHTML = '<option value="ALL">All Time (Overall Analytics)</option>';
+  months.forEach((ym) => {
+    const opt = document.createElement("option");
+    opt.value = ym;
+    opt.textContent = formatMonthKey(ym);
+    sel.appendChild(opt);
+  });
+
+  if (["ALL", "this-month", "prev-month", "last-90"].includes(current) || months.includes(current)) {
+    sel.value = current;
+  }
+}
+
+function getFilteredAnalyticsSales() {
+  const currentYM = todayStr().substring(0, 7);
+  const now = new Date();
+  const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevYM = `${prevDate.getFullYear()}-${pad(prevDate.getMonth() + 1)}`;
+
+  if (selectedAnalyticsPeriod === "ALL") {
+    return sales;
+  }
+  if (selectedAnalyticsPeriod === "this-month") {
+    return sales.filter((s) => s.date && s.date.startsWith(currentYM));
+  }
+  if (selectedAnalyticsPeriod === "prev-month") {
+    return sales.filter((s) => s.date && s.date.startsWith(prevYM));
+  }
+  if (selectedAnalyticsPeriod === "last-90") {
+    const d90 = new Date();
+    d90.setDate(d90.getDate() - 90);
+    const d90Str = `${d90.getFullYear()}-${pad(d90.getMonth() + 1)}-${pad(d90.getDate())}`;
+    return sales.filter((s) => s.date && s.date >= d90Str);
+  }
+  // Specific YYYY-MM
+  return sales.filter((s) => s.date && s.date.startsWith(selectedAnalyticsPeriod));
+}
+
+function getPeriodDescription() {
+  const currentYM = todayStr().substring(0, 7);
+  const now = new Date();
+  const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevYM = `${prevDate.getFullYear()}-${pad(prevDate.getMonth() + 1)}`;
+
+  if (selectedAnalyticsPeriod === "ALL") {
+    return "All Time (Complete Cafe History)";
+  }
+  if (selectedAnalyticsPeriod === "this-month") {
+    return `This Month (${formatMonthKey(currentYM)})`;
+  }
+  if (selectedAnalyticsPeriod === "prev-month") {
+    return `Last Month (${formatMonthKey(prevYM)})`;
+  }
+  if (selectedAnalyticsPeriod === "last-90") {
+    return "Past 90 Days Sales Intelligence";
+  }
+  return formatMonthKey(selectedAnalyticsPeriod);
+}
+
+function renderAnalytics() {
+  updateMonthFilterOptions();
+  const filtered = getFilteredAnalyticsSales();
+
+  // Basic stats
+  const totalRevenue = filtered.reduce((s, x) => s + Number(x.total || 0), 0);
+  const totalCups = filtered.reduce((s, x) => s + Number(x.quantity || 0), 0);
+  const totalOrders = filtered.length;
+  const aov = totalOrders ? Math.round(totalRevenue / totalOrders) : 0;
+
+  // Distinct active sales days
+  const activeDays = new Set(filtered.map((s) => s.date)).size || 1;
+  const avgRevenuePerDay = Math.round(totalRevenue / activeDays);
+
+  // Group by item
+  const itemMap = {};
+  filtered.forEach((s) => {
+    const name = s.itemName || "Unknown";
+    if (!itemMap[name]) {
+      itemMap[name] = {
+        name,
+        category: s.category || "Beverage",
+        price: Number(s.price || 0),
+        cups: 0,
+        revenue: 0,
+        orders: 0
+      };
+    }
+    itemMap[name].cups += Number(s.quantity || 0);
+    itemMap[name].revenue += Number(s.total || 0);
+    itemMap[name].orders += 1;
+  });
+  const items = Object.values(itemMap);
+
+  // Best seller
+  let bestSeller = null;
+  items.forEach((item) => {
+    if (!bestSeller || item.cups > bestSeller.cups) {
+      bestSeller = item;
     }
   });
 
-  $("stat-revenue-today").textContent = rupee(revenueToday);
-  $("stat-qty-today").textContent = qtyToday;
-  $("stat-revenue-total").textContent = rupee(revenueTotal);
-  $("stat-best-seller").textContent = bestQty ? `${best} (${bestQty})` : "—";
+  // Group by category
+  const catMap = {};
+  filtered.forEach((s) => {
+    const cat = s.category || "Beverage";
+    if (!catMap[cat]) {
+      catMap[cat] = { name: cat, cups: 0, revenue: 0, orders: 0 };
+    }
+    catMap[cat].cups += Number(s.quantity || 0);
+    catMap[cat].revenue += Number(s.total || 0);
+    catMap[cat].orders += 1;
+  });
+  const categories = Object.values(catMap);
+
+  let topCategory = null;
+  categories.forEach((c) => {
+    if (!topCategory || c.revenue > topCategory.revenue) {
+      topCategory = c;
+    }
+  });
+
+  // 1. Update KPI Card values
+  if ($("kpi-revenue")) $("kpi-revenue").textContent = rupee(totalRevenue);
+  if ($("kpi-revenue-sub")) $("kpi-revenue-sub").textContent = `Avg per active day: ${rupee(avgRevenuePerDay)}`;
+
+  if ($("kpi-cups")) $("kpi-cups").textContent = totalCups.toLocaleString("en-IN");
+  if ($("kpi-cups-sub")) $("kpi-cups-sub").textContent = activeDays > 1 ? `Avg ~${Math.round(totalCups / activeDays)} cups/day` : "Total beverage volume";
+
+  if ($("kpi-best-coffee")) {
+    $("kpi-best-coffee").textContent = bestSeller ? bestSeller.name : "—";
+  }
+  if ($("kpi-best-coffee-sub")) {
+    if (bestSeller && totalCups > 0) {
+      const share = Math.round((bestSeller.cups / totalCups) * 100);
+      $("kpi-best-coffee-sub").textContent = `🏆 ${bestSeller.cups} cups · ${rupee(bestSeller.revenue)} (${share}% share)`;
+    } else {
+      $("kpi-best-coffee-sub").textContent = "0 cups · ₹0 revenue";
+    }
+  }
+
+  if ($("kpi-top-category")) {
+    $("kpi-top-category").textContent = topCategory ? topCategory.name : "—";
+  }
+  if ($("kpi-top-category-sub")) {
+    if (topCategory && totalRevenue > 0) {
+      const share = Math.round((topCategory.revenue / totalRevenue) * 100);
+      $("kpi-top-category-sub").textContent = `${rupee(topCategory.revenue)} · ${share}% of revenue`;
+    } else {
+      $("kpi-top-category-sub").textContent = "0% of total sales";
+    }
+  }
+
+  if ($("kpi-aov")) $("kpi-aov").textContent = rupee(aov);
+  if ($("kpi-aov-sub")) $("kpi-aov-sub").textContent = totalOrders ? `Across ${totalOrders} tickets` : "Average per transaction";
+
+  if ($("kpi-orders")) $("kpi-orders").textContent = totalOrders.toLocaleString("en-IN");
+  if ($("kpi-orders-sub")) $("kpi-orders-sub").textContent = `Active selling days: ${activeDays}`;
+
+  // Update banner text
+  const banner = $("analytics-banner-text");
+  if (banner) {
+    banner.textContent = `Viewing ${getPeriodDescription()} · ${filtered.length} Orders · ${totalCups} Cups · ${rupee(totalRevenue)}`;
+  }
+
+  // 2. Render Charts
+  renderTopProductsChart(items);
+  renderCategoryShareChart(categories, totalRevenue);
+  renderMonthlyTrendChart();
+  renderDailyTrendChart(filtered);
+  renderHourlyTrendChart(filtered);
+
+  // 3. Render Leaderboard Table
+  renderLeaderboardTable(items, totalCups, activeDays);
+}
+
+// ---------------------------------------------------------------------
+// CHART.JS RENDERERS
+// ---------------------------------------------------------------------
+const CHART_COLORS = [
+  "#114B4F", "#F1653D", "#F2A93B", "#3D7A41", "#8A4FFF",
+  "#00A896", "#E63946", "#457B9D", "#D4A373", "#6B5F52"
+];
+
+function destroyChart(key) {
+  if (chartInstances[key]) {
+    chartInstances[key].destroy();
+    chartInstances[key] = null;
+  }
+}
+
+function renderTopProductsChart(items) {
+  const canvas = $("chart-top-products");
+  if (!canvas || typeof Chart === "undefined") return;
+  destroyChart("topProducts");
+
+  // Sort by cups desc, take top 10
+  const sorted = [...items].sort((a, b) => b.cups - a.cups).slice(0, 10);
+  const labels = sorted.map((x) => x.name);
+  const data = sorted.map((x) => x.cups);
+  const revenues = sorted.map((x) => x.revenue);
+
+  const tag = $("top-chart-tag");
+  if (tag) tag.textContent = `Top ${sorted.length} Beverages`;
+
+  const ctx = canvas.getContext("2d");
+  chartInstances.topProducts = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{
+        label: "Cups Sold",
+        data,
+        backgroundColor: "rgba(17, 75, 79, 0.85)",
+        borderColor: "#114B4F",
+        borderWidth: 1.5,
+        borderRadius: 6,
+        hoverBackgroundColor: "#F1653D"
+      }]
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              const cups = context.raw || 0;
+              const rev = revenues[context.dataIndex] || 0;
+              return ` ${cups} cups sold (${rupee(rev)})`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          grid: { color: "rgba(0,0,0,0.05)" },
+          ticks: { font: { family: "IBM Plex Mono", size: 11 } }
+        },
+        y: {
+          grid: { display: false },
+          ticks: { font: { family: "Work Sans", weight: "600", size: 12 } }
+        }
+      }
+    }
+  });
+}
+
+function renderCategoryShareChart(categories, totalRevenue) {
+  const canvas = $("chart-category-share");
+  if (!canvas || typeof Chart === "undefined") return;
+  destroyChart("categoryShare");
+
+  const sorted = [...categories].sort((a, b) => b.revenue - a.revenue);
+  const labels = sorted.map((c) => c.name);
+  const data = sorted.map((c) => c.revenue);
+
+  const ctx = canvas.getContext("2d");
+  chartInstances.categoryShare = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: labels.length ? labels : ["No data"],
+      datasets: [{
+        data: data.length ? data : [1],
+        backgroundColor: data.length ? CHART_COLORS.slice(0, labels.length) : ["#EEE1C6"],
+        borderWidth: 2,
+        borderColor: "#FFFCF5"
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: "bottom",
+          labels: { boxWidth: 12, font: { family: "Work Sans", size: 11, weight: "600" } }
+        },
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              if (!data.length) return " No data";
+              const val = context.raw || 0;
+              const pct = totalRevenue > 0 ? Math.round((val / totalRevenue) * 100) : 0;
+              return ` ${context.label}: ${rupee(val)} (${pct}%)`;
+            }
+          }
+        }
+      },
+      cutout: "68%"
+    }
+  });
+}
+
+function renderMonthlyTrendChart() {
+  const canvas = $("chart-monthly-trend");
+  if (!canvas || typeof Chart === "undefined") return;
+  destroyChart("monthlyTrend");
+
+  // Aggregate ALL historical sales by month
+  const monthMap = {};
+  sales.forEach((s) => {
+    if (!s.date || s.date.length < 7) return;
+    const ym = s.date.substring(0, 7);
+    if (!monthMap[ym]) {
+      monthMap[ym] = { ym, revenue: 0, cups: 0 };
+    }
+    monthMap[ym].revenue += Number(s.total || 0);
+    monthMap[ym].cups += Number(s.quantity || 0);
+  });
+
+  const sortedMonths = Object.keys(monthMap).sort();
+  const labels = sortedMonths.map((ym) => formatMonthKey(ym));
+  const revenues = sortedMonths.map((ym) => monthMap[ym].revenue);
+  const cups = sortedMonths.map((ym) => monthMap[ym].cups);
+
+  const ctx = canvas.getContext("2d");
+  chartInstances.monthlyTrend = new Chart(ctx, {
+    data: {
+      labels: labels.length ? labels : ["Current Month"],
+      datasets: [
+        {
+          type: "bar",
+          label: "Revenue (₹)",
+          data: revenues.length ? revenues : [0],
+          backgroundColor: "rgba(241, 101, 61, 0.85)",
+          borderColor: "#F1653D",
+          borderWidth: 1.5,
+          borderRadius: 6,
+          yAxisID: "y"
+        },
+        {
+          type: "line",
+          label: "Total Cups Sold",
+          data: cups.length ? cups : [0],
+          borderColor: "#114B4F",
+          backgroundColor: "#114B4F",
+          borderWidth: 3,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          pointBackgroundColor: "#FFFCF5",
+          pointBorderColor: "#114B4F",
+          pointBorderWidth: 2,
+          yAxisID: "y1",
+          tension: 0.3
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: {
+          position: "top",
+          labels: { font: { family: "Work Sans", weight: "600", size: 12 } }
+        },
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              if (context.dataset.yAxisID === "y") {
+                return ` Revenue: ${rupee(context.raw)}`;
+              }
+              return ` Cups Sold: ${context.raw} cups`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { font: { family: "Work Sans", weight: "600", size: 11.5 } }
+        },
+        y: {
+          type: "linear",
+          display: true,
+          position: "left",
+          beginAtZero: true,
+          grid: { color: "rgba(0,0,0,0.06)" },
+          ticks: {
+            font: { family: "IBM Plex Mono", size: 11 },
+            callback: (v) => `₹${Number(v).toLocaleString("en-IN")}`
+          }
+        },
+        y1: {
+          type: "linear",
+          display: true,
+          position: "right",
+          beginAtZero: true,
+          grid: { drawOnChartArea: false },
+          ticks: {
+            font: { family: "IBM Plex Mono", size: 11 },
+            callback: (v) => `${v} cups`
+          }
+        }
+      }
+    }
+  });
+}
+
+function renderDailyTrendChart(filteredSales) {
+  const canvas = $("chart-daily-trend");
+  if (!canvas || typeof Chart === "undefined") return;
+  destroyChart("dailyTrend");
+
+  // Aggregate by date
+  const dayMap = {};
+  filteredSales.forEach((s) => {
+    if (!s.date) return;
+    if (!dayMap[s.date]) {
+      dayMap[s.date] = { date: s.date, revenue: 0, cups: 0 };
+    }
+    dayMap[s.date].revenue += Number(s.total || 0);
+    dayMap[s.date].cups += Number(s.quantity || 0);
+  });
+
+  const sortedDates = Object.keys(dayMap).sort();
+  const labels = sortedDates.map((d) => d.substring(5)); // MM-DD
+  const revenues = sortedDates.map((d) => dayMap[d].revenue);
+  const cups = sortedDates.map((d) => dayMap[d].cups);
+
+  const sub = $("daily-chart-subtitle");
+  if (sub) {
+    sub.textContent = `${sortedDates.length} active day${sortedDates.length === 1 ? "" : "s"} in selected period`;
+  }
+
+  const ctx = canvas.getContext("2d");
+  chartInstances.dailyTrend = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: labels.length ? labels : ["No data"],
+      datasets: [{
+        label: "Daily Revenue",
+        data: revenues.length ? revenues : [0],
+        backgroundColor: "rgba(17, 75, 79, 0.75)",
+        borderColor: "#114B4F",
+        borderWidth: 1,
+        borderRadius: 4,
+        hoverBackgroundColor: "#F1653D"
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: (items) => (items[0] && sortedDates[items[0].dataIndex]) || "",
+            label: (context) => {
+              const rev = context.raw || 0;
+              const cup = cups[context.dataIndex] || 0;
+              return ` Revenue: ${rupee(rev)} (${cup} cups)`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { font: { family: "IBM Plex Mono", size: 10.5 } }
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: "rgba(0,0,0,0.05)" },
+          ticks: {
+            font: { family: "IBM Plex Mono", size: 10.5 },
+            callback: (v) => `₹${Number(v).toLocaleString("en-IN")}`
+          }
+        }
+      }
+    }
+  });
+}
+
+function renderHourlyTrendChart(filteredSales) {
+  const canvas = $("chart-hourly-trend");
+  if (!canvas || typeof Chart === "undefined") return;
+  destroyChart("hourlyTrend");
+
+  // Hours 0 to 23
+  const hours = Array.from({ length: 24 }, (_, i) => i);
+  const hourCups = new Array(24).fill(0);
+  const hourRevenue = new Array(24).fill(0);
+
+  filteredSales.forEach((s) => {
+    if (s.time) {
+      const h = parseInt(s.time.split(":")[0], 10);
+      if (!isNaN(h) && h >= 0 && h < 24) {
+        hourCups[h] += Number(s.quantity || 0);
+        hourRevenue[h] += Number(s.total || 0);
+      }
+    }
+  });
+
+  // Filter labels to operating range 7 AM to 11 PM
+  const range = hours.filter((h) => h >= 7 && h <= 23);
+  const labels = range.map((h) => {
+    const ampm = h >= 12 ? "PM" : "AM";
+    const displayH = h % 12 === 0 ? 12 : h % 12;
+    return `${displayH} ${ampm}`;
+  });
+  const dataCups = range.map((h) => hourCups[h]);
+  const dataRevenue = range.map((h) => hourRevenue[h]);
+
+  const ctx = canvas.getContext("2d");
+  chartInstances.hourlyTrend = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [{
+        label: "Cups Sold by Hour",
+        data: dataCups,
+        borderColor: "#3D7A41",
+        backgroundColor: "rgba(61, 122, 65, 0.12)",
+        fill: true,
+        tension: 0.35,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        pointBackgroundColor: "#3D7A41",
+        borderWidth: 2.5
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              const cups = context.raw || 0;
+              const rev = dataRevenue[context.dataIndex] || 0;
+              return ` ${cups} cups (${rupee(rev)})`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { font: { family: "IBM Plex Mono", size: 10.5 } }
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: "rgba(0,0,0,0.05)" },
+          ticks: { font: { family: "IBM Plex Mono", size: 10.5 } }
+        }
+      }
+    }
+  });
+}
+
+// ---------------------------------------------------------------------
+// LEADERBOARD TABLE RENDERER
+// ---------------------------------------------------------------------
+function renderLeaderboardTable(items, totalCups, activeDays) {
+  const tbody = $("leaderboard-tbody");
+  if (!tbody) return;
+
+  let list = [...items];
+
+  // Search filter
+  if (leaderboardSearch) {
+    const q = leaderboardSearch.toLowerCase();
+    list = list.filter((p) =>
+      p.name.toLowerCase().includes(q) ||
+      (p.category && p.category.toLowerCase().includes(q))
+    );
+  }
+
+  // Sorting
+  if (leaderboardSort === "cups-desc") {
+    list.sort((a, b) => b.cups - a.cups || b.revenue - a.revenue);
+  } else if (leaderboardSort === "revenue-desc") {
+    list.sort((a, b) => b.revenue - a.revenue || b.cups - a.cups);
+  } else if (leaderboardSort === "name-asc") {
+    list.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No beverages match this leaderboard filter.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = "";
+  list.forEach((item, idx) => {
+    const tr = document.createElement("tr");
+
+    // Rank Medal Badge
+    let rankBadge = "";
+    if (idx === 0) rankBadge = '<span class="rank-badge gold" title="Rank 1 Best Seller">1</span>';
+    else if (idx === 1) rankBadge = '<span class="rank-badge silver" title="Rank 2">2</span>';
+    else if (idx === 2) rankBadge = '<span class="rank-badge bronze" title="Rank 3">3</span>';
+    else rankBadge = `<span class="rank-badge standard">${idx + 1}</span>`;
+
+    const sharePct = totalCups > 0 ? Math.round((item.cups / totalCups) * 100) : 0;
+    const avgDailyCups = activeDays > 0 ? (item.cups / activeDays).toFixed(1) : item.cups;
+
+    tr.innerHTML = `
+      <td>${rankBadge}</td>
+      <td><strong>${escapeHtml(item.name)}</strong></td>
+      <td><span class="pill">${escapeHtml(item.category || "Beverage")}</span></td>
+      <td class="mono">${rupee(item.price)}</td>
+      <td class="mono"><strong>${item.cups}</strong></td>
+      <td>
+        <div class="volume-bar-cell">
+          <div class="mini-bar-track" title="${sharePct}% of total volume">
+            <div class="mini-bar-fill" style="width: ${Math.min(100, Math.max(4, sharePct))}%;"></div>
+          </div>
+          <span class="mini-bar-pct">${sharePct}%</span>
+        </div>
+      </td>
+      <td class="mono" style="color:var(--coral-deep); font-weight:700;">${rupee(item.revenue)}</td>
+      <td class="mono">${avgDailyCups} / day</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ---------------------------------------------------------------------
+// MONTH-WISE SALES PERFORMANCE REPORTS PANEL
+// ---------------------------------------------------------------------
+function renderMonthlyReports() {
+  const tbody = $("monthly-report-tbody");
+  if (!tbody) return;
+
+  const monthMap = {};
+  sales.forEach((s) => {
+    if (!s.date || s.date.length < 7) return;
+    const ym = s.date.substring(0, 7);
+    if (!monthMap[ym]) {
+      monthMap[ym] = {
+        monthKey: ym,
+        orders: 0,
+        cups: 0,
+        revenue: 0,
+        itemMap: {},
+        catMap: {}
+      };
+    }
+    monthMap[ym].orders += 1;
+    monthMap[ym].cups += Number(s.quantity || 0);
+    monthMap[ym].revenue += Number(s.total || 0);
+
+    const name = s.itemName || "Unknown";
+    monthMap[ym].itemMap[name] = (monthMap[ym].itemMap[name] || 0) + Number(s.quantity || 0);
+
+    const cat = s.category || "Beverage";
+    monthMap[ym].catMap[cat] = (monthMap[ym].catMap[cat] || 0) + Number(s.total || 0);
+  });
+
+  const sortedMonths = Object.keys(monthMap).sort().reverse();
+
+  if (!sortedMonths.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No monthly sales data logged yet.</td></tr>';
+    return;
+  }
+
+  let grandOrders = 0;
+  let grandCups = 0;
+  let grandRevenue = 0;
+
+  tbody.innerHTML = "";
+  sortedMonths.forEach((ym) => {
+    const data = monthMap[ym];
+    grandOrders += data.orders;
+    grandCups += data.cups;
+    grandRevenue += data.revenue;
+
+    const aov = data.orders ? Math.round(data.revenue / data.orders) : 0;
+
+    // Best seller of this month
+    let bestName = "—", bestCups = 0;
+    Object.entries(data.itemMap).forEach(([n, c]) => {
+      if (c > bestCups) {
+        bestName = n;
+        bestCups = c;
+      }
+    });
+
+    // Top category of this month
+    let topCat = "—", topCatRev = 0;
+    Object.entries(data.catMap).forEach(([cat, r]) => {
+      if (r > topCatRev) {
+        topCat = cat;
+        topCatRev = r;
+      }
+    });
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><strong>${formatMonthKey(ym)}</strong> <small class="field-hint">(${ym})</small></td>
+      <td class="mono">${data.orders}</td>
+      <td class="mono"><strong>${data.cups}</strong></td>
+      <td class="mono" style="color:var(--coral-deep); font-weight:700;">${rupee(data.revenue)}</td>
+      <td class="mono">${rupee(aov)}</td>
+      <td><strong>${escapeHtml(bestName)}</strong> <small class="field-hint">(${bestCups} cups)</small></td>
+      <td><span class="pill">${escapeHtml(topCat)}</span></td>
+      <td>
+        <button type="button" class="btn-drilldown-mini" data-month="${ym}">
+          🔍 Inspect Analytics
+        </button>
+      </td>
+    `;
+
+    tr.querySelector(".btn-drilldown-mini").onclick = () => {
+      drilldownToMonth(ym);
+    };
+
+    tbody.appendChild(tr);
+  });
+
+  // Footer totals
+  if ($("monthly-foot-orders")) $("monthly-foot-orders").textContent = grandOrders.toLocaleString("en-IN");
+  if ($("monthly-foot-cups")) $("monthly-foot-cups").textContent = grandCups.toLocaleString("en-IN");
+  if ($("monthly-foot-revenue")) $("monthly-foot-revenue").textContent = rupee(grandRevenue);
+  if ($("monthly-foot-aov")) {
+    const grandAOV = grandOrders ? Math.round(grandRevenue / grandOrders) : 0;
+    $("monthly-foot-aov").textContent = rupee(grandAOV);
+  }
+}
+
+function drilldownToMonth(ym) {
+  selectedAnalyticsPeriod = ym;
+  const sel = $("analytics-month-select");
+  if (sel) sel.value = ym;
+
+  // Clear active quick pill
+  document.querySelectorAll(".btn-period-pill").forEach((b) => b.classList.remove("active"));
+
+  // Switch to Analytics subtab
+  document.querySelectorAll(".subtab").forEach((b) => {
+    b.classList.toggle("active", b.dataset.panel === "panel-analytics");
+  });
+  document.querySelectorAll(".admin-panel").forEach((p) => {
+    p.classList.toggle("active", p.id === "panel-analytics");
+  });
+
+  renderAnalytics();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function exportMonthlyReportCSV() {
+  const monthMap = {};
+  sales.forEach((s) => {
+    if (!s.date || s.date.length < 7) return;
+    const ym = s.date.substring(0, 7);
+    if (!monthMap[ym]) {
+      monthMap[ym] = {
+        monthKey: ym,
+        orders: 0,
+        cups: 0,
+        revenue: 0,
+        itemMap: {},
+        catMap: {}
+      };
+    }
+    monthMap[ym].orders += 1;
+    monthMap[ym].cups += Number(s.quantity || 0);
+    monthMap[ym].revenue += Number(s.total || 0);
+
+    const name = s.itemName || "Unknown";
+    monthMap[ym].itemMap[name] = (monthMap[ym].itemMap[name] || 0) + Number(s.quantity || 0);
+
+    const cat = s.category || "Beverage";
+    monthMap[ym].catMap[cat] = (monthMap[ym].catMap[cat] || 0) + Number(s.total || 0);
+  });
+
+  const sortedMonths = Object.keys(monthMap).sort().reverse();
+  if (!sortedMonths.length) return alert("No monthly data available to export.");
+
+  const header = ["Month Code", "Month Name", "Total Orders", "Total Cups Sold", "Total Revenue (INR)", "Avg Order Value (INR)", "Best Seller Item", "Best Seller Cups", "Top Category"];
+  const rows = sortedMonths.map((ym) => {
+    const data = monthMap[ym];
+    const aov = data.orders ? Math.round(data.revenue / data.orders) : 0;
+    let bestName = "", bestCups = 0;
+    Object.entries(data.itemMap).forEach(([n, c]) => {
+      if (c > bestCups) { bestName = n; bestCups = c; }
+    });
+    let topCat = "", topCatRev = 0;
+    Object.entries(data.catMap).forEach(([cat, r]) => {
+      if (r > topCatRev) { topCat = cat; topCatRev = r; }
+    });
+    return [
+      ym, formatMonthKey(ym), data.orders, data.cups, data.revenue,
+      aov, bestName, bestCups, topCat
+    ];
+  });
+
+  const csvContent = [header, ...rows]
+    .map((r) => r.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `hola-amigos-monthly-sales-report-${todayStr()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // =======================================================================
@@ -614,8 +1467,9 @@ function getFilteredSales() {
     if (cat && s.category !== cat) return false;
     if (search) {
       const matchName = s.itemName && s.itemName.toLowerCase().includes(search);
-      const matchBarista = s.barista && s.barista.toLowerCase().includes(search);
-      if (!matchName && !matchBarista) return false;
+      const remarkVal = (s.remark || s.barista || "").toLowerCase();
+      const matchRemark = remarkVal.includes(search);
+      if (!matchName && !matchRemark) return false;
     }
     return true;
   });
@@ -632,6 +1486,7 @@ function renderSalesTable() {
     tbody.innerHTML = "";
     filtered.forEach((s) => {
       const tr = document.createElement("tr");
+      const remarkText = s.remark || s.barista || "—";
       tr.innerHTML = `
         <td class="mono">${escapeHtml(s.date || "")}</td>
         <td class="mono">${escapeHtml(s.time || "")}</td>
@@ -640,7 +1495,7 @@ function renderSalesTable() {
         <td class="mono">${s.quantity}</td>
         <td class="mono">${rupee(s.price)}</td>
         <td class="mono"><strong>${rupee(s.total)}</strong></td>
-        <td>${escapeHtml(s.barista || "—")}</td>
+        <td>${escapeHtml(remarkText)}</td>
         <td><button type="button" class="btn-danger-mini" data-id="${s.id}">Delete</button></td>
       `;
       tr.querySelector(".btn-danger-mini").onclick = () => deleteSale(s.id, s.itemName);
@@ -655,7 +1510,12 @@ function renderSalesTable() {
 }
 
 async function deleteSale(id, name) {
-  if (!confirm(`Delete this sale record (${name})? This cannot be undone.`)) return;
+  const pwd = prompt(`🔐 Enter Deletion Password (PIN) to delete sale (${name}):`);
+  if (pwd === null) return; // User cancelled
+  if (pwd.trim() !== DELETE_PASSWORD && pwd.trim() !== DEFAULT_ADMIN_PASSWORD) {
+    alert("❌ Incorrect deletion password. Sale was NOT deleted.");
+    return;
+  }
   try {
     await deleteDoc(doc(db, "sales", id));
   } catch (e) {
@@ -668,10 +1528,10 @@ function exportCSV() {
   const filtered = getFilteredSales();
   if (!filtered.length) return alert("No sales to export with the current filters.");
 
-  const header = ["Date", "Time", "Item", "Category", "Quantity", "Price", "Total", "Barista"];
+  const header = ["Date", "Time", "Item", "Category", "Quantity", "Price", "Total", "Remark"];
   const rows = filtered.map((s) => [
     s.date || "", s.time || "", s.itemName || "", s.category || "",
-    s.quantity || 0, s.price || 0, s.total || 0, s.barista || ""
+    s.quantity || 0, s.price || 0, s.total || 0, s.remark || s.barista || ""
   ]);
 
   const csvContent = [header, ...rows]
@@ -811,7 +1671,12 @@ async function saveProductEdit(id, tr) {
 
 // Delete product from Firestore
 async function deleteProduct(id, name) {
-  if (!confirm(`Remove "${name}" from the database menu?`)) return;
+  const pwd = prompt(`🔐 Enter Deletion Password (PIN) to remove "${name}" from menu:`);
+  if (pwd === null) return; // User cancelled
+  if (pwd.trim() !== DELETE_PASSWORD && pwd.trim() !== DEFAULT_ADMIN_PASSWORD) {
+    alert("❌ Incorrect deletion password. Product was NOT deleted.");
+    return;
+  }
   try {
     await deleteDoc(doc(db, "products", id));
   } catch (e) {
@@ -896,6 +1761,16 @@ function setupSubtabs() {
       btn.classList.add("active");
       const targetPanel = $(btn.dataset.panel);
       if (targetPanel) targetPanel.classList.add("active");
+
+      if (btn.dataset.panel === "panel-analytics") {
+        renderAnalytics();
+      } else if (btn.dataset.panel === "panel-monthly-reports") {
+        renderMonthlyReports();
+      } else if (btn.dataset.panel === "panel-sales") {
+        renderSalesTable();
+      } else if (btn.dataset.panel === "panel-products") {
+        renderProductsTable();
+      }
     };
   });
 }
@@ -903,6 +1778,60 @@ function setupSubtabs() {
 function setupEntryForm() {
   // Set the date field to today by default
   $("input-date").value = todayStr();
+
+  // Quick 1st Coffee / 2nd Bakery / 3rd Combo Pill Buttons
+  document.querySelectorAll(".btn-type-pill").forEach((btn) => {
+    btn.onclick = () => {
+      document.querySelectorAll(".btn-type-pill").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      const cat = btn.dataset.cat;
+      if ($("select-ticket-category")) $("select-ticket-category").value = cat;
+      if ($("ticket-selected-cat")) $("ticket-selected-cat").textContent = cat;
+
+      const currentName = $("input-item-name") ? $("input-item-name").value.trim() : "";
+      if (!currentName && $("selected-item-name")) {
+        $("selected-item-name").textContent = `${cat} Entry`;
+      }
+    };
+  });
+
+  // Custom Item Name Typing
+  const nameInput = $("input-item-name");
+  if (nameInput) {
+    nameInput.addEventListener("input", (e) => {
+      const val = e.target.value.trim();
+      if ($("selected-item-name")) {
+        $("selected-item-name").textContent = val || "New Order Entry";
+      }
+
+      // If typed name matches a product in the database, auto-fill price if price is blank
+      const match = products.find((p) => p.name && p.name.toLowerCase() === val.toLowerCase());
+      if (match) {
+        selectedProduct = match;
+        if (!$("input-price").value || Number($("input-price").value) === 0) {
+          $("input-price").value = match.price;
+          updateTicketTotal();
+        }
+        if ($("select-ticket-category")) $("select-ticket-category").value = match.category || "Coffee";
+        if ($("ticket-selected-cat")) $("ticket-selected-cat").textContent = match.category || "Coffee";
+        document.querySelectorAll(".btn-type-pill").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.cat === match.category);
+        });
+      }
+    });
+  }
+
+  // Category dropdown selector
+  const catSelect = $("select-ticket-category");
+  if (catSelect) {
+    catSelect.addEventListener("change", (e) => {
+      const cat = e.target.value;
+      if ($("ticket-selected-cat")) $("ticket-selected-cat").textContent = cat;
+      document.querySelectorAll(".btn-type-pill").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.cat === cat);
+      });
+    });
+  }
 
   // Dropdown selection automatically selects item and populates price
   $("select-item").onchange = (e) => {
@@ -984,6 +1913,66 @@ function setupAdmin() {
     };
   }
 
+  // ── Analytics & Month Selection Controls ──
+  const monthSelect = $("analytics-month-select");
+  if (monthSelect) {
+    monthSelect.addEventListener("change", (e) => {
+      selectedAnalyticsPeriod = e.target.value;
+      if ($("analytics-month-picker")) {
+        $("analytics-month-picker").value = selectedAnalyticsPeriod !== "ALL" && /^\d{4}-\d{2}$/.test(selectedAnalyticsPeriod) ? selectedAnalyticsPeriod : "";
+      }
+      document.querySelectorAll(".btn-period-pill").forEach((b) => {
+        b.classList.toggle("active", b.dataset.period === selectedAnalyticsPeriod);
+      });
+      renderAnalytics();
+    });
+  }
+
+  const monthPicker = $("analytics-month-picker");
+  if (monthPicker) {
+    monthPicker.addEventListener("change", (e) => {
+      if (e.target.value) {
+        selectedAnalyticsPeriod = e.target.value;
+        if (monthSelect) monthSelect.value = selectedAnalyticsPeriod;
+        document.querySelectorAll(".btn-period-pill").forEach((b) => b.classList.remove("active"));
+        renderAnalytics();
+      }
+    });
+  }
+
+  document.querySelectorAll(".btn-period-pill").forEach((btn) => {
+    btn.onclick = () => {
+      document.querySelectorAll(".btn-period-pill").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      selectedAnalyticsPeriod = btn.dataset.period;
+      if (monthSelect) monthSelect.value = selectedAnalyticsPeriod;
+      if (monthPicker) monthPicker.value = "";
+      renderAnalytics();
+    };
+  });
+
+  const lbSearch = $("leaderboard-search");
+  if (lbSearch) {
+    lbSearch.addEventListener("input", (e) => {
+      leaderboardSearch = e.target.value.trim();
+      renderAnalytics();
+    });
+  }
+
+  const lbSort = $("leaderboard-sort");
+  if (lbSort) {
+    lbSort.addEventListener("change", (e) => {
+      leaderboardSort = e.target.value;
+      renderAnalytics();
+    });
+  }
+
+  const btnMonthlyCSV = $("btn-export-monthly-csv");
+  if (btnMonthlyCSV) {
+    btnMonthlyCSV.onclick = exportMonthlyReportCSV;
+  }
+
+  // ── Product Search & Sales Filters ──
   $("admin-product-search").addEventListener("input", (e) => {
     adminProductSearch = e.target.value.trim();
     renderProductsTable();
