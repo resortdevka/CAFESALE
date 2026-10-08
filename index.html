@@ -7,7 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=5" />
+  <link rel="stylesheet" href="styles.css?v=9" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 
@@ -91,29 +92,68 @@
         <div class="ticket">
           <div class="ticket-head">
             <div class="ticket-eyebrow-row">
-              <span class="ticket-eyebrow">New Sale</span>
-              <span class="ticket-badge" id="ticket-selected-cat">Select Item</span>
+              <span class="ticket-eyebrow">Counter POS</span>
+              <span class="ticket-badge" id="ticket-selected-cat">☕ Coffee</span>
             </div>
-            <h3 id="selected-item-name">Pick an item</h3>
+            <h3 id="selected-item-name">New Order Entry</h3>
+          </div>
+
+          <!-- Quick Category Selection Bar -->
+          <div class="ticket-type-bar">
+            <button type="button" class="btn-type-pill active" data-cat="Coffee">
+              <span>☕ 1st Coffee</span>
+            </button>
+            <button type="button" class="btn-type-pill" data-cat="Bakery Items">
+              <span>🥐 2nd Bakery</span>
+            </button>
+            <button type="button" class="btn-type-pill" data-cat="Combo">
+              <span>🥪 3rd Combo</span>
+            </button>
           </div>
 
           <div class="ticket-body">
+            <!-- Item Name / Selection (Type own or pick from dropdown) -->
             <label class="field">
-              <span>Item</span>
-              <select id="select-item">
-                <option value="">— choose an item —</option>
-              </select>
+              <span>Item Name &amp; Details <small class="field-hint">(Pick or write your own)</small></span>
+              <input type="text" id="input-item-name" placeholder="Type item name or pick below..." list="ticket-items-datalist" autocomplete="off" />
+              <datalist id="ticket-items-datalist"></datalist>
             </label>
 
-            <label class="field">
-              <span>Date</span>
-              <input type="date" id="input-date" required />
-            </label>
+            <div class="entry-two-col">
+              <label class="field">
+                <span>Select from Menu</span>
+                <select id="select-item">
+                  <option value="">— choose from menu —</option>
+                </select>
+              </label>
 
-            <label class="field">
-              <span>Price (₹) <small class="field-hint">(Auto-filled)</small></span>
-              <input type="number" id="input-price" min="0" step="1" inputmode="decimal" placeholder="0" />
-            </label>
+              <label class="field">
+                <span>Category</span>
+                <select id="select-ticket-category">
+                  <option value="Coffee">☕ Coffee</option>
+                  <option value="Bakery Items">🥐 Bakery Items</option>
+                  <option value="Combo">🥪 Combo</option>
+                  <option value="Specialty Coffee">☕ Specialty Coffee</option>
+                  <option value="Flavoured Specialty Coffee">✨ Flavoured Coffee</option>
+                  <option value="Cold Coffee">🧊 Cold Coffee</option>
+                  <option value="Milkshakes">🥤 Milkshakes</option>
+                  <option value="Ice Tea">🍑 Ice Tea</option>
+                  <option value="Other">✨ Other</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="entry-two-col">
+              <label class="field">
+                <span>Price / Amount (₹) <small class="field-hint">(Editable)</small></span>
+                <input type="number" id="input-price" min="0" step="1" inputmode="decimal" placeholder="Enter amount..." />
+              </label>
+
+              <label class="field">
+                <span>Date</span>
+                <input type="date" id="input-date" required />
+              </label>
+            </div>
 
             <label class="field">
               <span>Quantity</span>
@@ -132,8 +172,8 @@
             </label>
 
             <label class="field">
-              <span>Barista (optional)</span>
-              <input type="text" id="input-barista" placeholder="e.g. Rahul, Priya" maxlength="50" />
+              <span>Item Details / Remark (optional)</span>
+              <input type="text" id="input-remark" placeholder="e.g. Less sugar, extra ice, Table 3, takeaway" maxlength="100" />
             </label>
 
             <div class="ticket-total">
@@ -146,7 +186,7 @@
 
             <div class="ticket-btn-group">
               <button class="btn-primary" id="btn-add-sale">
-                <span>⚡ Log Sale</span>
+                <span>⚡ Log Sale Entry</span>
               </button>
             </div>
             <p class="form-msg" id="entry-msg"></p>
@@ -182,7 +222,7 @@
       <div class="login-card">
         <img src="logo-cafe-web.png" alt="H'ola Amigos Cafe Logo" class="login-logo" />
         <h2>Staff Door</h2>
-        <p>Enter the admin password to manage products, prices, and view the sales dashboard.</p>
+        <p>Enter the admin password to access data analytics, monthly reports, and menu management.</p>
         
         <label class="field">
           <span>Password</span>
@@ -192,7 +232,7 @@
           </div>
         </label>
         
-        <button class="btn-primary" id="btn-admin-login">Unlock Admin</button>
+        <button class="btn-primary" id="btn-admin-login">Unlock Admin &amp; Analytics</button>
         <p class="form-msg" id="login-msg"></p>
       </div>
     </div>
@@ -202,8 +242,8 @@
 
       <div class="admin-top">
         <div>
-          <h2>Admin Dashboard</h2>
-          <p class="panel-subtitle">Manage menu prices, add items to Firestore, and track live revenues</p>
+          <h2>Cafe Analytics &amp; Admin Hub</h2>
+          <p class="panel-subtitle">Complete data intelligence, best-selling coffee analysis, and monthly reports</p>
         </div>
         <div class="admin-top-actions">
           <span class="pill success" id="admin-live-pill">● Database Live</span>
@@ -211,33 +251,260 @@
         </div>
       </div>
 
-      <div class="stat-row" id="stat-row">
-        <div class="stat-card">
-          <span class="stat-label">Today's Revenue</span>
-          <strong class="stat-value" id="stat-revenue-today">₹0</strong>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Today's Cups Sold</span>
-          <strong class="stat-value" id="stat-qty-today">0</strong>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">All-Time Revenue</span>
-          <strong class="stat-value" id="stat-revenue-total">₹0</strong>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Best Seller</span>
-          <strong class="stat-value" id="stat-best-seller">—</strong>
-        </div>
-      </div>
-
+      <!-- Navigation Subtabs -->
       <nav class="subtabs" role="tablist">
-        <button class="subtab active" data-panel="panel-sales">📊 Sales Dashboard</button>
+        <button class="subtab active" data-panel="panel-analytics">📈 Data Analytics &amp; Best Sellers</button>
+        <button class="subtab" data-panel="panel-monthly-reports">📅 Month-Wise Reports</button>
+        <button class="subtab" data-panel="panel-sales">📋 Sales Transactions</button>
         <button class="subtab" data-panel="panel-products">☕ Manage Products &amp; Prices</button>
         <button class="subtab" data-panel="panel-settings">⚙️ Settings</button>
       </nav>
 
-      <!-- Sales dashboard -->
-      <div class="admin-panel active" id="panel-sales">
+      <!-- ================= 1. DATA ANALYTICS & BEST SELLERS PANEL ================= -->
+      <div class="admin-panel active" id="panel-analytics">
+
+        <!-- Month Filter Toolbar -->
+        <div class="analytics-toolbar">
+          <div class="analytics-filter-row">
+            <div class="period-selector-wrap">
+              <label class="field small">
+                <span>Select Month</span>
+                <select id="analytics-month-select" class="month-select-dropdown">
+                  <option value="ALL">All Time (Overall Analytics)</option>
+                </select>
+              </label>
+
+              <label class="field small">
+                <span>Or Pick Month/Year</span>
+                <input type="month" id="analytics-month-picker" />
+              </label>
+            </div>
+
+            <div class="quick-period-pills">
+              <button type="button" class="btn-period-pill" data-period="this-month">This Month</button>
+              <button type="button" class="btn-period-pill" data-period="prev-month">Last Month</button>
+              <button type="button" class="btn-period-pill" data-period="last-90">Last 3 Months</button>
+              <button type="button" class="btn-period-pill active" data-period="all">All Time</button>
+            </div>
+          </div>
+
+          <div class="analytics-active-badge" id="analytics-current-banner">
+            <span class="active-badge-icon">📊</span>
+            <span id="analytics-banner-text">Showing overall all-time sales analytics</span>
+          </div>
+        </div>
+
+        <!-- 6 Main KPI Analytics Cards -->
+        <div class="analytics-kpi-grid">
+          <div class="analytics-kpi-card highlight-revenue">
+            <div class="kpi-header">
+              <span class="kpi-label">Total Sales Revenue</span>
+              <span class="kpi-badge-icon">💰</span>
+            </div>
+            <strong class="kpi-value" id="kpi-revenue">₹0</strong>
+            <span class="kpi-subtext" id="kpi-revenue-sub">Avg per day: ₹0</span>
+          </div>
+
+          <div class="analytics-kpi-card highlight-cups">
+            <div class="kpi-header">
+              <span class="kpi-label">Total Cups Sold</span>
+              <span class="kpi-badge-icon">☕</span>
+            </div>
+            <strong class="kpi-value" id="kpi-cups">0</strong>
+            <span class="kpi-subtext" id="kpi-cups-sub">Across all coffee orders</span>
+          </div>
+
+          <div class="analytics-kpi-card highlight-bestseller">
+            <div class="kpi-header">
+              <span class="kpi-label">#1 Best-Selling Coffee</span>
+              <span class="kpi-badge-icon">🏆</span>
+            </div>
+            <strong class="kpi-value kpi-item-title" id="kpi-best-coffee">—</strong>
+            <span class="kpi-subtext" id="kpi-best-coffee-sub">0 cups · ₹0 revenue</span>
+          </div>
+
+          <div class="analytics-kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Top Category</span>
+              <span class="kpi-badge-icon">⭐</span>
+            </div>
+            <strong class="kpi-value kpi-item-title" id="kpi-top-category">—</strong>
+            <span class="kpi-subtext" id="kpi-top-category-sub">0% of total sales</span>
+          </div>
+
+          <div class="analytics-kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Avg Order Value (AOV)</span>
+              <span class="kpi-badge-icon">📈</span>
+            </div>
+            <strong class="kpi-value" id="kpi-aov">₹0</strong>
+            <span class="kpi-subtext" id="kpi-aov-sub">Average per transaction</span>
+          </div>
+
+          <div class="analytics-kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Total Orders Logged</span>
+              <span class="kpi-badge-icon">🧾</span>
+            </div>
+            <strong class="kpi-value" id="kpi-orders">0</strong>
+            <span class="kpi-subtext" id="kpi-orders-sub">Counter tickets logged</span>
+          </div>
+        </div>
+
+        <!-- Visual Charts Grid -->
+        <div class="analytics-charts-grid">
+          <!-- Top Selling Products Chart -->
+          <div class="chart-card chart-wide">
+            <div class="chart-head">
+              <div>
+                <h3>🏆 Top Selling Coffees &amp; Beverages</h3>
+                <p class="panel-subtitle">Ranking drinks by total cups sold for the selected time period</p>
+              </div>
+              <span class="chart-tag" id="top-chart-tag">Top 10 items</span>
+            </div>
+            <div class="chart-canvas-container">
+              <canvas id="chart-top-products"></canvas>
+            </div>
+          </div>
+
+          <!-- Category Breakdown Chart -->
+          <div class="chart-card">
+            <div class="chart-head">
+              <div>
+                <h3>🥧 Category Share</h3>
+                <p class="panel-subtitle">Revenue distribution by drink category</p>
+              </div>
+            </div>
+            <div class="chart-canvas-container doughnut-wrap">
+              <canvas id="chart-category-share"></canvas>
+            </div>
+          </div>
+
+          <!-- Month-Wise Revenue & Cups Growth Trend -->
+          <div class="chart-card chart-wide">
+            <div class="chart-head">
+              <div>
+                <h3>📊 Month-Wise Sales &amp; Revenue Trend</h3>
+                <p class="panel-subtitle">Historical month-by-month financial performance and beverage volume</p>
+              </div>
+            </div>
+            <div class="chart-canvas-container">
+              <canvas id="chart-monthly-trend"></canvas>
+            </div>
+          </div>
+
+          <!-- Daily Sales Trend in Selected Month -->
+          <div class="chart-card">
+            <div class="chart-head">
+              <div>
+                <h3>📅 Daily Sales Breakdown</h3>
+                <p class="panel-subtitle" id="daily-chart-subtitle">Day-by-day sales pattern for selected month</p>
+              </div>
+            </div>
+            <div class="chart-canvas-container">
+              <canvas id="chart-daily-trend"></canvas>
+            </div>
+          </div>
+
+          <!-- Peak Rush Hours -->
+          <div class="chart-card chart-full">
+            <div class="chart-head">
+              <div>
+                <h3>⏰ Peak Hourly Sales Distribution</h3>
+                <p class="panel-subtitle">Understand customer traffic patterns and busy rush hours</p>
+              </div>
+            </div>
+            <div class="chart-canvas-container hourly-canvas-wrap">
+              <canvas id="chart-hourly-trend"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Coffee Leaderboard Section -->
+        <div class="analytics-leaderboard-section">
+          <div class="panel-head">
+            <div>
+              <h3>☕ Coffee &amp; Beverage Sales Leaderboard</h3>
+              <p class="panel-subtitle">Comprehensive breakdown of sales, cup count, and revenue share for every item</p>
+            </div>
+            <div class="leaderboard-controls">
+              <input type="text" id="leaderboard-search" placeholder="🔍 Filter beverage..." autocomplete="off" />
+              <select id="leaderboard-sort">
+                <option value="cups-desc">Sort by: Most Cups Sold ↓</option>
+                <option value="revenue-desc">Sort by: Highest Revenue (₹) ↓</option>
+                <option value="name-asc">Sort by: Name (A-Z)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="data-table leaderboard-table" id="leaderboard-table">
+              <thead>
+                <tr>
+                  <th style="width: 70px;">Rank</th>
+                  <th>Beverage Item</th>
+                  <th>Category</th>
+                  <th>Unit Price</th>
+                  <th>Cups Sold</th>
+                  <th>Volume Share</th>
+                  <th>Total Revenue</th>
+                  <th>Avg Daily Cups</th>
+                </tr>
+              </thead>
+              <tbody id="leaderboard-tbody">
+                <tr><td colspan="8" class="empty-state">Loading beverage leaderboard…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ================= 2. MONTH-WISE REPORTS PANEL ================= -->
+      <div class="admin-panel" id="panel-monthly-reports">
+        <div class="panel-head">
+          <div>
+            <h3>📅 Month-Wise Sales Performance Reports</h3>
+            <p class="panel-subtitle">Detailed breakdown of total revenue, cups sold, orders, and best-sellers for each month</p>
+          </div>
+          <button class="btn-secondary" id="btn-export-monthly-csv">📥 Export Monthly Report CSV</button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table monthly-report-table" id="monthly-report-table">
+            <thead>
+              <tr>
+                <th>Month &amp; Year</th>
+                <th>Total Orders</th>
+                <th>Total Cups Sold</th>
+                <th>Total Revenue (₹)</th>
+                <th>Average Order Value</th>
+                <th>#1 Best-Selling Coffee</th>
+                <th>Top Category</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="monthly-report-tbody">
+              <tr><td colspan="8" class="empty-state">Loading monthly reports…</td></tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>All-Time Grand Total</td>
+                <td id="monthly-foot-orders" class="mono">0</td>
+                <td id="monthly-foot-cups" class="mono">0</td>
+                <td id="monthly-foot-revenue" class="mono">₹0</td>
+                <td id="monthly-foot-aov" class="mono">₹0</td>
+                <td id="monthly-foot-best">—</td>
+                <td>—</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <!-- ================= 3. SALES TRANSACTIONS PANEL ================= -->
+      <div class="admin-panel" id="panel-sales">
         <div class="filter-bar">
           <label class="field small">
             <span>From</span>
@@ -252,8 +519,8 @@
             <select id="filter-category"><option value="">All categories</option></select>
           </label>
           <label class="field small grow">
-            <span>Search item / barista</span>
-            <input type="text" id="filter-search" placeholder="e.g. Cappuccino, Rahul" autocomplete="off" />
+            <span>Search item / remark</span>
+            <input type="text" id="filter-search" placeholder="e.g. Cappuccino, Less ice, Table 3, Rahul" autocomplete="off" />
           </label>
           <div class="filter-btn-group">
             <button class="btn-ghost" id="btn-clear-filters">Clear</button>
@@ -272,7 +539,7 @@
                 <th>Qty</th>
                 <th>Price</th>
                 <th>Total</th>
-                <th>Barista</th>
+                <th>Remark</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -382,6 +649,6 @@
   <p>H'ola Amigos Cafe · Devka Beach Resort — Fast Counter Sales &amp; Daily Reporting Desk</p>
 </footer>
 
-<script type="module" src="app.js?v=5"></script>
+<script type="module" src="app.js?v=9"></script>
 </body>
 </html>
