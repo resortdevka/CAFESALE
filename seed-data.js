@@ -60,10 +60,25 @@ export const DEFAULT_MENU = [
   { name: "Lemon Ice Tea (Soda)", category: "Ice Tea", price: 250 },
   { name: "Lemon Ice Tea (Water)", category: "Ice Tea", price: 200 },
   { name: "Green Apple Ice Tea (Soda)", category: "Ice Tea", price: 250 },
-  { name: "Green Apple Ice Tea (Water)", category: "Ice Tea", price: 200 },
+  // --- Bakery Items ---
+  { name: "Butter Croissant", category: "Bakery Items", price: 120 },
+  { name: "Almond Croissant", category: "Bakery Items", price: 160 },
+  { name: "Chocolate Brownie", category: "Bakery Items", price: 140 },
+  { name: "Blueberry Muffin", category: "Bakery Items", price: 130 },
+  { name: "Choco Chip Cookie", category: "Bakery Items", price: 90 },
+  { name: "Cheesecake Slice", category: "Bakery Items", price: 220 },
+
+  // --- Combo ---
+  { name: "Coffee + Croissant Combo", category: "Combo", price: 240 },
+  { name: "Cappuccino + Brownie Combo", category: "Combo", price: 260 },
+  { name: "Cold Coffee + Cookie Combo", category: "Combo", price: 270 },
+  { name: "Amigos Breakfast Combo", category: "Combo", price: 320 },
 ];
 
 export const CATEGORY_ORDER = [
+  "Coffee",
+  "Bakery Items",
+  "Combo",
   "Specialty Coffee",
   "Flavoured Specialty Coffee",
   "Cold Coffee",
@@ -72,6 +87,9 @@ export const CATEGORY_ORDER = [
 ];
 
 export const CATEGORY_ICONS = {
+  "Coffee": "☕",
+  "Bakery Items": "🥐",
+  "Combo": "🥪",
   "Specialty Coffee": "☕",
   "Flavoured Specialty Coffee": "✨",
   "Cold Coffee": "🧊",
